@@ -1,19 +1,21 @@
 from fastapi import FastAPI
 from fastapi import HTTPException
+from mongita import MongitaClientDisk
+from pydantic import BaseModel
 
 
-shapes = [
-    {"item_name": "Circle", "no_of_sides": 1, "id": 1},
-    {"item_name": "Square", "no_of_sides": 4, "id": 2},
-    {"item_name": "Triangle", "no_of_sides": 3, "id": 3},
-    {"item_name": "Rectangle", "no_of_sides": 4, "id": 4},
-    {"item_name": "Pentagon", "no_of_sides": 5, "id": 5},
-    {"item_name": "Hexagon", "no_of_sides": 6, "id": 6},
-    {"item_name": "Heptagon", "no_of_sides": 7, "id": 7},
-    {"item_name": "Octagon", "no_of_sides": 8, "id": 8}
-]
+class Shape(BaseModel):
+    id: int
+    type: str
+    no_of_sides: int
+
+
 app = FastAPI()
 
+client = MongitaClientDisk()
+db = client.db
+shapes = db.shapes
+# shapes.insert_one({"id": 1, "type": "circle", "no_of_sides": 1})
 
 @app.get("/")
 async def root():
@@ -21,12 +23,23 @@ async def root():
 
 @app.get("/shapes")
 async def get_shapes():
-    return shapes
+    available_shapes = shapes.find({})
+    return [
+        {key: shape[key] for key in shape if key != "_id"}
+        for shape in available_shapes
+    ]
 
 @app.get("/shapes/{shape_id}")
 async def get_shape(shape_id: int):
-    for shape in shapes:
-        if shape["id"] == shape_id:
-            return shape
+    if shapes.count_documents({"id": shape_id}) > 0:
+        shape = shapes.find_one({"id": shape_id})
+        return {key: shape[key] for key in shape if key != "_id"}
     # return {"error": "Shape not found"}
     raise HTTPException(status_code=404, detail="Shape not found")
+
+@app.post("/shapes")
+async def create_shape(shape: Shape):
+    if shapes.find_one({"id": shape.id}):
+        raise HTTPException(status_code=400, detail="Shape with this ID already exists")
+    shapes.insert_one(shape.dict())
+    return shape
